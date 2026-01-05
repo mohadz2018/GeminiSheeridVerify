@@ -825,9 +825,133 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
-def health_check():
+def dashboard():
+    stats = get_stats()
     daily = load_daily()
-    return f"Tyrell's Bot 🎭 | Today: {daily.get('count', 0)}/{DAILY_LIMIT}", 200
+    q_size = task_queue.qsize() if task_queue else 0
+    
+    total = int(stats.get("total", 0))
+    success = int(stats.get("success", 0))
+    failed = int(stats.get("failed", 0))
+    daily_count = int(daily.get("global_count", 0))
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Tyrell's Bot Dashboard 🎭</title>
+        <style>
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background-color: #0d1117;
+                color: #c9d1d9;
+                margin: 0;
+                padding: 20px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+            }}
+            .container {{
+                background-color: #161b22;
+                padding: 40px;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+                border: 1px solid #30363d;
+                max-width: 500px;
+                width: 100%;
+            }}
+            h1 {{
+                text-align: center;
+                color: #58a6ff;
+                margin-bottom: 30px;
+                font-size: 24px;
+            }}
+            .stat-grid {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+            }}
+            .stat-card {{
+                background-color: #21262d;
+                padding: 15px;
+                border-radius: 8px;
+                text-align: center;
+                border: 1px solid #30363d;
+            }}
+            .stat-value {{
+                font-size: 28px;
+                font-weight: bold;
+                color: #f0f6fc;
+                margin: 5px 0;
+            }}
+            .stat-label {{
+                font-size: 14px;
+                color: #8b949e;
+            }}
+            .success {{ color: #2ea043; }}
+            .failed {{ color: #da3633; }}
+            .queue {{ color: #d29922; }}
+            .footer {{
+                text-align: center;
+                margin-top: 30px;
+                font-size: 12px;
+                color: #8b949e;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎭 Tyrell's Command Center</h1>
+            
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Daily Verifications</div>
+                    <div class="stat-value">{daily_count} <span style="font-size:16px; color:#8b949e">/ {DAILY_LIMIT_GLOBAL}</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Queue Size</div>
+                    <div class="stat-value queue">{q_size}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Processed</div>
+                    <div class="stat-value">{total}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Success Rate</div>
+                    <div class="stat-value">{(success / total * 100) if total > 0 else 0:.1f}%</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <div class="stat-card" style="display: flex; justify-content: space-around;">
+                    <div>
+                        <div class="stat-value success">{success}</div>
+                        <div class="stat-label">Success ✅</div>
+                    </div>
+                    <div>
+                        <div class="stat-value failed">{failed}</div>
+                        <div class="stat-label">Failed ❌</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                Tyrell's Verification Bot • Running on Port {PORT}
+            </div>
+        </div>
+        <script>
+            // Auto-refresh every 30 seconds
+            setTimeout(function() {{
+                location.reload();
+            }}, 30000);
+        </script>
+    </body>
+    </html>
+    """
+    return html, 200
 
 def run_flask():
     import logging as flask_logging
