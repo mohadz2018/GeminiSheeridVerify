@@ -36,7 +36,7 @@ MAX_DELAY = 800
 
 # ============ STATS TRACKING ============
 class Stats:
-    """Track success rates by organization"""
+    """Track success rates by organization and error types"""
     
     def __init__(self):
         self.file = Path(__file__).parent / "stats.json"
@@ -48,18 +48,52 @@ class Stats:
                 return json.loads(self.file.read_text())
             except (json.JSONDecodeError, IOError):
                 pass
-        return {"total": 0, "success": 0, "failed": 0, "orgs": {}}
+        return {
+            "total": 0, 
+            "success": 0, 
+            "failed": 0, 
+            "errors": {
+                "submit_failed": 0,
+                "api_error": 0,
+                "no_upload_url": 0,
+                "upload_failed": 0,
+                "unknown_step": 0,
+                "other": 0
+            },
+            "orgs": {}
+        }
     
     def _save(self):
         self.file.write_text(json.dumps(self.data, indent=2))
     
-    def record(self, org: str, success: bool):
+    def record(self, org: str, success: bool, error_msg: str = None):
         self.data["total"] += 1
-        self.data["success" if success else "failed"] += 1
+        if success:
+            self.data["success"] += 1
+        else:
+            self.data["failed"] += 1
+            # Track specific errors
+            if not self.data.get("errors"):
+                self.data["errors"] = {"submit_failed": 0, "api_error": 0, "no_upload_url": 0, "upload_failed": 0, "unknown_step": 0, "other": 0}
+            
+            error_msg = str(error_msg).lower() if error_msg else ""
+            if "submit failed" in error_msg:
+                self.data["errors"]["submit_failed"] += 1
+            elif "error:" in error_msg:
+                self.data["errors"]["api_error"] += 1
+            elif "no upload url" in error_msg:
+                self.data["errors"]["no_upload_url"] += 1
+            elif "upload failed" in error_msg:
+                self.data["errors"]["upload_failed"] += 1
+            elif "unknown step" in error_msg or "invalid step" in error_msg:
+                self.data["errors"]["unknown_step"] += 1
+            else:
+                self.data["errors"]["other"] += 1
         
-        if org not in self.data["orgs"]:
-            self.data["orgs"][org] = {"success": 0, "failed": 0}
-        self.data["orgs"][org]["success" if success else "failed"] += 1
+        if org:
+            if org not in self.data["orgs"]:
+                self.data["orgs"][org] = {"success": 0, "failed": 0}
+            self.data["orgs"][org]["success" if success else "failed"] += 1
         self._save()
     
     def get_rate(self, org: str = None) -> float:
@@ -72,6 +106,9 @@ class Stats:
     def print_stats(self):
         print(f"\n📊 Statistics:")
         print(f"   Total: {self.data['total']} | ✅ {self.data['success']} | ❌ {self.data['failed']}")
+        if self.data.get("errors"):
+            e = self.data["errors"]
+            print(f"   Errors: Submit:{e['submit_failed']} | API:{e['api_error']} | URL:{e['no_upload_url']} | Upload:{e['upload_failed']} | Step:{e['unknown_step']}")
         if self.data["total"]:
             print(f"   Success Rate: {self.get_rate():.1f}%")
 
@@ -384,7 +421,15 @@ class GeminiVerifier:
                 proxy = f"http://{proxy}"
             self.proxy = proxy
         
-        self.client = httpx.Client(timeout=30, proxy=self.proxy)
+        if self.proxy:
+            try:
+                # Try modern 'proxy' parameter (Render/New versions)
+                self.client = httpx.Client(timeout=30, proxy=self.proxy)
+            except TypeError:
+                # Fallback to legacy 'proxies' parameter (Local/Old versions)
+                self.client = httpx.Client(timeout=30, proxies=self.proxy)
+        else:
+            self.client = httpx.Client(timeout=30)
         self.org = None
     
     def __del__(self):
@@ -491,12 +536,14 @@ class GeminiVerifier:
                 data, status = self._request("POST", f"/verification/{self.vid}/step/collectStudentPersonalInfo", body)
                 
                 if status != 200:
-                    stats.record(self.org["name"], False)
-                    return {"success": False, "error": f"Submit failed: {status}"}
+                    err = f"Submit failed: {status}"
+                    stats.record(self.org["name"], False, err)
+                    return {"success": False, "error": err}
                 
                 if data.get("currentStep") == "error":
-                    stats.record(self.org["name"], False)
-                    return {"success": False, "error": f"Error: {data.get('errorIds', [])}"}
+                    err = f"Error: {data.get('errorIds', [])}"
+                    stats.record(self.org["name"], False, err)
+                    return {"success": False, "error": err}
                 
                 self.progress_callback(f"✅ They bought it! Moving to: `{data.get('currentStep')}`")
                 current_step = data.get("currentStep", "")
@@ -516,13 +563,15 @@ class GeminiVerifier:
             data, status = self._request("POST", f"/verification/{self.vid}/step/docUpload", upload_body)
             
             if not data.get("documents"):
-                stats.record(self.org["name"], False)
-                return {"success": False, "error": "No upload URL"}
+                err = "No upload URL"
+                stats.record(self.org["name"], False, err)
+                return {"success": False, "error": err}
             
             upload_url = data["documents"][0].get("uploadUrl")
             if not self._upload_s3(upload_url, doc):
-                stats.record(self.org["name"], False)
-                return {"success": False, "error": "Upload failed"}
+                err = "Upload failed"
+                stats.record(self.org["name"], False, err)
+                return {"success": False, "error": err}
             
             self.progress_callback("✅ **Upload complete!** _SheerID has the goods_ 📦")
             
@@ -545,7 +594,7 @@ class GeminiVerifier:
             
         except Exception as e:
             if self.org:
-                stats.record(self.org["name"], False)
+                stats.record(self.org["name"], False, str(e))
             return {"success": False, "error": str(e)}
 
 

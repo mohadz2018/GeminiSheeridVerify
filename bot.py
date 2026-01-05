@@ -271,8 +271,8 @@ def get_main_menu_keyboard(user_id: int):
     user = get_user(user_id)
     credits = user.get("credits", 0)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"� My Credits: {credits}", callback_data="credits")],
-        [InlineKeyboardButton("�📊 Stats & Glory", callback_data="stats"),
+        [InlineKeyboardButton(f" My Credits: {credits}", callback_data="credits")],
+        [InlineKeyboardButton("📊 Stats & Glory", callback_data="stats"),
          InlineKeyboardButton("📋 Queue", callback_data="queue")],
         [InlineKeyboardButton("🎁 Refer Friends", callback_data="refer")],
         [InlineKeyboardButton("🎓 How This Works", callback_data="help")],
@@ -371,9 +371,8 @@ async def worker(application: Application):
                     "║   🎉 **VICTORY ROYALE**  ║\n"
                     "╚══════════════════════════╝\n\n"
                     f"*{fun_success}*\n\n"
-                    "Your verification is in SheerID's hands now.\n"
+                    "**Verification submitted! Wait 24-48h for review**\n\n"
                     "They'll review it like it's a college essay 📝\n\n"
-                    "⏳ **ETA:** 24-48 hours\n"
                     "📧 Check your email for the good news!\n\n"
                     f"💰 **Credits remaining:** {credits_left}\n\n"
                     "_Tyrell out_ ✌️"
@@ -607,6 +606,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         proxies = load_proxies()
         proxy_status = f"**{len(proxies)}** 🇺🇸" if proxies else "None (Direct) 🏠"
         
+        errors = stats.get("errors", {})
+        
         stats_text = (
             "╔══════════════════════════╗\n"
             "║  📊 **HALL OF FAME**     ║\n"
@@ -617,6 +618,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ Fails: **{failed}**\n\n"
             f"**Win Rate:** {rate:.1f}%\n"
             f"`[{bar}]`\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ **FAILURE BREAKDOWN:**\n"
+            f"• Submit Failed: **{errors.get('submit_failed', 0)}**\n"
+            f"• API Error: **{errors.get('api_error', 0)}**\n"
+            f"• No Upload URL: **{errors.get('no_upload_url', 0)}**\n"
+            f"• Upload Failed: **{errors.get('upload_failed', 0)}**\n"
+            f"• Unknown Step: **{errors.get('unknown_step', 0)}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 **Global Slots:** {daily_remaining_global}/{DAILY_LIMIT_GLOBAL}\n"
             f"👤 **Your Slots:** {daily_user_usage}/{DAILY_LIMIT_USER}\n"
@@ -835,6 +843,8 @@ def dashboard():
     failed = int(stats.get("failed", 0))
     daily_count = int(daily.get("global_count", 0))
     
+    errors = stats.get("errors", {})
+    
     html = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -860,7 +870,7 @@ def dashboard():
                 border-radius: 12px;
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
                 border: 1px solid #30363d;
-                max-width: 500px;
+                max-width: 600px;
                 width: 100%;
             }}
             h1 {{
@@ -873,6 +883,7 @@ def dashboard():
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 20px;
+                margin-bottom: 20px;
             }}
             .stat-card {{
                 background-color: #21262d;
@@ -891,9 +902,36 @@ def dashboard():
                 font-size: 14px;
                 color: #8b949e;
             }}
+            .error-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin-top: 20px;
+            }}
+            .error-card {{
+                background-color: #1c2128;
+                padding: 10px;
+                border-radius: 6px;
+                text-align: center;
+                border: 1px solid #30363d;
+                font-size: 12px;
+            }}
+            .error-value {{
+                font-size: 18px;
+                font-weight: bold;
+                color: #da3633;
+            }}
             .success {{ color: #2ea043; }}
             .failed {{ color: #da3633; }}
             .queue {{ color: #d29922; }}
+            .section-title {{
+                font-size: 14px;
+                color: #8b949e;
+                margin: 25px 0 10px 0;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                text-align: center;
+            }}
             .footer {{
                 text-align: center;
                 margin-top: 30px;
@@ -925,16 +963,42 @@ def dashboard():
                 </div>
             </div>
 
-            <div style="margin-top: 20px;">
-                <div class="stat-card" style="display: flex; justify-content: space-around;">
-                    <div>
-                        <div class="stat-value success">{success}</div>
-                        <div class="stat-label">Success ✅</div>
-                    </div>
-                    <div>
-                        <div class="stat-value failed">{failed}</div>
-                        <div class="stat-label">Failed ❌</div>
-                    </div>
+            <div class="stat-card" style="display: flex; justify-content: space-around;">
+                <div>
+                    <div class="stat-value success">{success}</div>
+                    <div class="stat-label">Success ✅</div>
+                </div>
+                <div>
+                    <div class="stat-value failed">{failed}</div>
+                    <div class="stat-label">Failed ❌</div>
+                </div>
+            </div>
+
+            <div class="section-title">⚠️ Failure Breakdown</div>
+            <div class="error-grid">
+                <div class="error-card">
+                    <div class="error-value">{errors.get('submit_failed', 0)}</div>
+                    <div class="stat-label">Submit Failed</div>
+                </div>
+                <div class="error-card">
+                    <div class="error-value">{errors.get('api_error', 0)}</div>
+                    <div class="stat-label">API Error</div>
+                </div>
+                <div class="error-card">
+                    <div class="error-value">{errors.get('no_upload_url', 0)}</div>
+                    <div class="stat-label">No Upload URL</div>
+                </div>
+                <div class="error-card">
+                    <div class="error-value">{errors.get('upload_failed', 0)}</div>
+                    <div class="stat-label">Upload Failed</div>
+                </div>
+                <div class="error-card">
+                    <div class="error-value">{errors.get('unknown_step', 0)}</div>
+                    <div class="stat-label">Unknown Step</div>
+                </div>
+                <div class="error-card">
+                    <div class="error-value">{errors.get('other', 0)}</div>
+                    <div class="stat-label">Other</div>
                 </div>
             </div>
 

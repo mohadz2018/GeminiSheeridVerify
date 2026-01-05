@@ -24,12 +24,20 @@ A robust, asynchronous Telegram bot designed for automated Student Verification.
 - **Referral Program:**
   - Unique referral links for every user.
   - Earn **+2 credits** for every friend referred.
-- **Daily Limits:** Global limit of **24 verifications/day** to ensure safety.
+- **Daily Limits:** 
+  - **User Limit:** 24 verifications/day.
+  - **Global Limit:** 1200 verifications/day (adjustable).
 
 ### 📊 Analytics & UI
-- **Beautiful UI:** stylized messages, progress bars, and custom fun messages.
+- **Failure Breakdown Dashboard:** Comprehensive tracking of failure reasons (Submit Failed, API Errors, Missing Upload URLs, etc.) visible in both Web Dashboard and Telegram.
+- **Improved Success Messaging:** Clearer verification status updates for users.
+- **Beautiful UI:** Stylized messages, progress bars, and custom fun messages.
 - **Live Stats:** Track success rates, active proxies, and user rankings (Newbie -> Legend).
 - **Real-time Updates:** Users see step-by-step progress of their verification.
+
+### 🛠 Tech Stack & Compatibility
+- **Cross-Platform Proxy Support:** Intelligent `httpx` logic handling both modern (`proxy`) and legacy (`proxies`) arguments for seamless deployment on Render vs. Local machines.
+- **Web Dashboard:** Built-in Flask health-check and status page for real-time monitoring.
 
 ---
 
