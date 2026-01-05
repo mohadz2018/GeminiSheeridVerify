@@ -35,7 +35,8 @@ PROXIES_FILE = Path(__file__).parent / "proxies.json"
 INITIAL_CREDITS = 3
 VERIFICATION_COST = 1
 REFERRAL_BONUS = 2
-DAILY_LIMIT = 24
+DAILY_LIMIT_GLOBAL = 1200
+DAILY_LIMIT_USER = 24
 
 # --- PROXY MANAGEMENT ---
 def load_proxies() -> list:
@@ -193,31 +194,58 @@ def process_referral(new_user_id: int, ref_code: str) -> tuple[bool, int]:
 # --- DAILY LIMIT ---
 def load_daily() -> dict:
     """Load daily stats"""
+    default_data = {
+        "date": str(date.today()), 
+        "global_count": 0, 
+        "user_counts": {}
+    }
+    
     if DAILY_FILE.exists():
         try:
             data = json.loads(DAILY_FILE.read_text())
             # Reset if it's a new day
             if data.get("date") != str(date.today()):
-                return {"date": str(date.today()), "count": 0}
+                return default_data
+            
+            # Ensure new structure exists (migration)
+            if "global_count" not in data:
+                data["global_count"] = data.get("count", 0)
+            if "user_counts" not in data:
+                data["user_counts"] = {}
+                
             return data
         except:
             pass
-    return {"date": str(date.today()), "count": 0}
+    return default_data
 
 def save_daily(data: dict):
     """Save daily stats"""
     DAILY_FILE.write_text(json.dumps(data, indent=2))
 
-def check_daily_limit() -> tuple[bool, int]:
-    """Check if daily limit is reached. Returns (can_proceed, remaining)"""
+def check_daily_limit(user_id: int) -> tuple[bool, str]:
+    """Check limits. Returns (can_proceed, reason_if_failed)"""
     daily = load_daily()
-    remaining = DAILY_LIMIT - daily["count"]
-    return remaining > 0, remaining
+    user_str = str(user_id)
+    
+    # 1. Check Global Limit
+    if daily["global_count"] >= DAILY_LIMIT_GLOBAL:
+        return False, "GLOBAL_LIMIT"
+        
+    # 2. Check User Limit
+    user_usage = daily["user_counts"].get(user_str, 0)
+    if user_usage >= DAILY_LIMIT_USER:
+        return False, "USER_LIMIT"
+        
+    return True, "OK"
 
-def increment_daily():
-    """Increment daily counter"""
+def increment_daily(user_id: int):
+    """Increment daily counters"""
     daily = load_daily()
-    daily["count"] += 1
+    user_str = str(user_id)
+    
+    daily["global_count"] += 1
+    daily["user_counts"][user_str] = daily["user_counts"].get(user_str, 0) + 1
+    
     save_daily(daily)
 
 # --- QUEUE SYSTEM ---
@@ -331,7 +359,7 @@ async def worker(application: Application):
                 pass
 
             # Increment daily counter
-            increment_daily()
+            increment_daily(job.user_id)
             
             user = get_user(job.user_id)
             credits_left = user.get("credits", 0)
@@ -555,7 +583,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rate = (success / total * 100) if total > 0 else 0
         
         daily = load_daily()
-        daily_remaining = DAILY_LIMIT - daily.get("count", 0)
+        daily_remaining_global = DAILY_LIMIT_GLOBAL - daily.get("global_count", 0)
+        daily_user_usage = daily.get("user_counts", {}).get(str(user_id), 0)
         
         bar_length = 10
         filled = int(bar_length * rate / 100) if rate > 0 else 0
@@ -589,7 +618,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"**Win Rate:** {rate:.1f}%\n"
             f"`[{bar}]`\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📅 **Today's Slots:** {daily_remaining}/{DAILY_LIMIT}\n"
+            f"📅 **Global Slots:** {daily_remaining_global}/{DAILY_LIMIT_GLOBAL}\n"
+            f"👤 **Your Slots:** {daily_user_usage}/{DAILY_LIMIT_USER}\n"
             f"🌐 **Proxies:** {proxy_status}"
         )
         
@@ -602,7 +632,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "queue":
         q_size = task_queue.qsize() if task_queue else 0
         daily = load_daily()
-        daily_remaining = DAILY_LIMIT - daily.get("count", 0)
+        daily_remaining_global = DAILY_LIMIT_GLOBAL - daily.get("global_count", 0)
         
         if q_size == 0:
             status_emoji = "😴"
@@ -622,7 +652,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 Jobs waiting: **{q_size}**\n"
             f"⏱️ Approx wait: **~{q_size} min**\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📅 **Daily Slots Remaining:** {daily_remaining}/{DAILY_LIMIT}\n\n"
+            f"📅 **Global Slots Remaining:** {daily_remaining_global}/{DAILY_LIMIT_GLOBAL}\n\n"
             "_First come, first served_ 🎫"
         )
         
@@ -651,7 +681,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🆕 New users: **{INITIAL_CREDITS} free credits**\n"
             f"✅ Each verification: **{VERIFICATION_COST} credit**\n"
             f"🎁 Refer a friend: **+{REFERRAL_BONUS} credits**\n"
-            f"📅 Daily limit: **{DAILY_LIMIT} verifications**\n\n"
+            f"📅 **Daily limit:** {DAILY_LIMIT_USER} (You) / {DAILY_LIMIT_GLOBAL} (Total)\n\n"
             "_Failed attempts = credit refunded!_ ✨"
         )
         
@@ -704,13 +734,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Check daily limit
-    can_proceed, remaining = check_daily_limit()
+    can_proceed, reason = check_daily_limit(user_id)
     if not can_proceed:
+        if reason == "GLOBAL_LIMIT":
+            msg = f"Global limit of **{DAILY_LIMIT_GLOBAL}** reached! 🌍"
+        else:
+            msg = f"You hit your daily limit of **{DAILY_LIMIT_USER}**! 🛑"
+            
         await update.message.reply_text(
             "╔══════════════════════════╗\n"
             "║  ⏰ **DAILY LIMIT HIT**  ║\n"
             "╚══════════════════════════╝\n\n"
-            f"We've hit **{DAILY_LIMIT}** verifications today!\n\n"
+            f"{msg}\n\n"
             "The servers need rest too 😴\n"
             "Come back tomorrow for more!\n\n"
             "_Limit resets at midnight UTC_ 🌙",
