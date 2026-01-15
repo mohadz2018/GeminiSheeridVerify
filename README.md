@@ -15,6 +15,16 @@
 
 ---
 
+## 📢 Join Our Community
+
+> **💬 For updates, discussions, and more:**
+> 
+> 👉 **Join our Telegram channel:** [t.me/RootLayerR](https://t.me/RootLayerR)
+>
+> Stay connected for the latest news, feature updates, and community support!
+
+---
+
 # 🎭 Verification Bot | Tyrell's Edition 🚀
 
 ![Status](https://img.shields.io/badge/Status-🔧%20Maintenance-orange)
